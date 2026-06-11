@@ -97,7 +97,7 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
         {
             var steamId = controller.AuthorizedSteamID ?? (SteamID)steamId64;
             PlayerLanguageManager.Instance.SetLanguage(steamId, cultureInfo);
-            logger.LogInformation("Detected language {Language} from {Source} for player {SteamId64}; target={TargetLanguage}, culture={Culture}", language, source, steamId64, playerTranslationService.GetLanguage(steamId64), cultureInfo.Name);
+            logger.LogDebug("Detected language {Language} from {Source} for player {SteamId64}; target={TargetLanguage}, culture={Culture}", language, source, steamId64, playerTranslationService.GetLanguage(steamId64), cultureInfo.Name);
         }
         else
         {
