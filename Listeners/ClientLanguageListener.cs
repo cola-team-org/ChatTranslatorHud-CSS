@@ -14,25 +14,45 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
     private const int LanguageQueryRetries = 15;
     private const string LanguageConVar = "cl_language";
     private readonly Dictionary<int, ulong> _slotSteamIds = [];
+    private readonly HashSet<int> _activeSlots = [];
+    private readonly HashSet<ulong> _resolvedSteamIds = [];
 
     public void OnClientAuthorized(int playerSlot, SteamID steamId)
     {
         if (steamId.IsValid())
             _slotSteamIds[playerSlot] = steamId.SteamId64;
 
-        ScheduleLanguageQuery(playerSlot, LanguageQueryRetries, 0.25f);
+        if (steamId.IsValid() && _resolvedSteamIds.Contains(steamId.SteamId64))
+            return;
+
+        if (_activeSlots.Add(playerSlot))
+        {
+            ScheduleLanguageQuery(playerSlot, LanguageQueryRetries, 0.25f);
+        }
     }
 
     public void OnClientPutInServer(int playerSlot)
     {
-        ScheduleLanguageQuery(playerSlot, LanguageQueryRetries, 1.0f);
+        var player = Utilities.GetPlayerFromSlot(playerSlot);
+        if (player != null && TryResolveSteamId64(player, playerSlot, out var steamId64))
+        {
+            if (_resolvedSteamIds.Contains(steamId64))
+                return;
+        }
+
+        if (_activeSlots.Add(playerSlot))
+        {
+            ScheduleLanguageQuery(playerSlot, LanguageQueryRetries, 1.0f);
+        }
     }
 
     public void OnClientDisconnect(int playerSlot)
     {
+        _activeSlots.Remove(playerSlot);
         if (!_slotSteamIds.Remove(playerSlot, out var steamId64))
             return;
 
+        _resolvedSteamIds.Remove(steamId64);
         playerTranslationService.Remove(steamId64);
         preferenceService.Remove(steamId64);
     }
@@ -40,12 +60,28 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
     public void RefreshConnectedPlayers()
     {
         foreach (var player in Utilities.GetPlayers())
-            ScheduleLanguageQuery(player.Slot, LanguageQueryRetries, 0.25f);
+        {
+            if (player.IsRealPlayer())
+            {
+                if (TryResolveSteamId64(player, player.Slot, out var steamId64))
+                {
+                    if (_resolvedSteamIds.Contains(steamId64))
+                        continue;
+                }
+
+                if (_activeSlots.Add(player.Slot))
+                {
+                    ScheduleLanguageQuery(player.Slot, LanguageQueryRetries, 0.25f);
+                }
+            }
+        }
     }
 
     public void Clear()
     {
         _slotSteamIds.Clear();
+        _activeSlots.Clear();
+        _resolvedSteamIds.Clear();
     }
 
     private void QueryPlayerLanguage(int playerSlot, int retriesRemaining)
@@ -66,6 +102,12 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
 
         _slotSteamIds[playerSlot] = steamId64;
 
+        if (_resolvedSteamIds.Contains(steamId64))
+        {
+            _activeSlots.Remove(playerSlot);
+            return;
+        }
+
         if (conVarQueryService.Query(controller, steamId64, LanguageConVar, OnLanguageQueryResult))
             return;
 
@@ -74,6 +116,9 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
 
     private void OnLanguageQueryResult(ClientConVarQueryResult result)
     {
+        int playerSlot = result.Player.Slot;
+        _activeSlots.Remove(playerSlot);
+
         if (result.Status != ClientConVarQueryStatus.ValueIntact)
         {
             logger.LogWarning("Failed to detect player language from {Source} for player {SteamId64}: {Status}", result.Name, result.SteamId64, result.Status);
@@ -87,6 +132,7 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
             return;
         }
 
+        _resolvedSteamIds.Add(result.SteamId64);
         ApplyLanguage(result.Player, result.SteamId64, language, result.Name);
     }
 
@@ -110,6 +156,7 @@ internal sealed class ClientLanguageListener(ChatTranslatorHud plugin, ClientCon
         if (retriesRemaining <= 0)
         {
             logger.LogWarning("Failed to detect player language for slot {PlayerSlot}: {Reason}", playerSlot, reason);
+            _activeSlots.Remove(playerSlot);
             return;
         }
 

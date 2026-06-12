@@ -47,6 +47,7 @@ internal sealed class ClientConVarQueryService
     private bool _responseObservedLogged;
     private bool _responseTimeoutGuidanceLogged;
     private CounterStrikeSharp.API.Modules.Timers.Timer? _pollTimer;
+    private DateTimeOffset _lastMetricsLogTime = DateTimeOffset.UtcNow;
 
     public ClientConVarQueryService(ChatTranslatorHud plugin, ILogger logger, bool useNativeResponseHook)
     {
@@ -135,6 +136,20 @@ internal sealed class ClientConVarQueryService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error handling native bridge hook response");
+            }
+        }
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            var now = DateTimeOffset.UtcNow;
+            if ((now - _lastMetricsLogTime).TotalSeconds >= 60)
+            {
+                _lastMetricsLogTime = now;
+                if (ClientConVarResponseReader.TryGetMetrics(out int scanCalls, out int scanHits, out int scanExceptions))
+                {
+                    _logger.LogDebug("[Native Hook Metrics] Scan Calls: {ScanCalls}, Scan Hits: {ScanHits}, Scan Exceptions: {ScanExceptions}",
+                        scanCalls, scanHits, scanExceptions);
+                }
             }
         }
     }

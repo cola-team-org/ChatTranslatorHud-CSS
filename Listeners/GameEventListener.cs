@@ -111,6 +111,13 @@ internal sealed class GameEventListener(
         {
             SendTranslatedChatMessages(message, languageGroups, translations);
             SendFallbackOriginalToUngrouped(message, recipients, languageGroups);
+
+            if (parseResult.Seconds > 5)
+            {
+                var defaultTranslation = translations.Values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? message;
+                hudDisplayService.AddStaticMessage(defaultTranslation, message, DateTimeOffset.UtcNow);
+            }
+
             hudDisplayService.AddCountdown(parseResult, message, DateTimeOffset.UtcNow, templates);
         });
     }
